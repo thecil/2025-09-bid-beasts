@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
-import {BidBeasts} from "./BidBeasts_NFT_ERC721.sol"; 
+import {BidBeasts} from "./BidBeasts_NFT_ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract BidBeastsNFTMarket is Ownable(msg.sender) {
-    
     BidBeasts public BBERC721;
 
     // --- Events ---
@@ -14,13 +13,13 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     event BidPlaced(uint256 tokenId, address bidder, uint256 amount);
     event AuctionExtended(uint256 tokenId, uint256 newDeadline);
     event AuctionSettled(uint256 tokenId, address winner, address seller, uint256 price);
-    event FeeWithdrawn(uint256 amount); 
+    event FeeWithdrawn(uint256 amount);
 
     // --- Structs ---.
     struct Listing {
         address seller;
         uint256 minPrice;
-        uint256 buyNowPrice; 
+        uint256 buyNowPrice;
         uint256 auctionEnd;
         bool listed;
     }
@@ -31,10 +30,10 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     }
 
     // --- Constants ---
-    uint256 constant public S_AUCTION_EXTENSION_DURATION = 15 minutes;
-    uint256 constant public S_MIN_NFT_PRICE = 0.01 ether;
-    uint256 constant public S_FEE_PERCENTAGE = 5;
-    uint256 constant public S_MIN_BID_INCREMENT_PERCENTAGE = 5; 
+    uint256 public constant S_AUCTION_EXTENSION_DURATION = 15 minutes;
+    uint256 public constant S_MIN_NFT_PRICE = 0.01 ether;
+    uint256 public constant S_FEE_PERCENTAGE = 5;
+    uint256 public constant S_MIN_BID_INCREMENT_PERCENTAGE = 5;
 
     // --- State Variables ---
     uint256 public s_totalFee;
@@ -90,7 +89,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
      */
     function unlistNFT(uint256 tokenId) external isListed(tokenId) isSeller(tokenId, msg.sender) {
         require(bids[tokenId].bidder == address(0), "Cannot unlist, a bid has been placed");
-        
+
         Listing storage listing = listings[tokenId];
         listing.listed = false;
 
@@ -102,8 +101,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     /**
      * @notice Places a bid on a listed NFT. Extends the auction on each new bid.
      */
-
-     function placeBid(uint256 tokenId) external payable isListed(tokenId) {
+    function placeBid(uint256 tokenId) external payable isListed(tokenId) {
         Listing storage listing = listings[tokenId];
         address previousBidder = bids[tokenId].bidder;
         uint256 previousBidAmount = bids[tokenId].amount;
@@ -117,8 +115,8 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
         // --- Buy Now Logic ---
 
         if (listing.buyNowPrice > 0 && msg.value >= listing.buyNowPrice) {
-            uint256 salePrice = listing.buyNowPrice; 
-            uint256 overpay = msg.value - salePrice; 
+            uint256 salePrice = listing.buyNowPrice;
+            uint256 overpay = msg.value - salePrice;
 
             // EFFECT: set winner bid to exact sale price (keep consistent)
             bids[tokenId] = Bid(msg.sender, salePrice);
@@ -146,12 +144,10 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
         uint256 requiredAmount;
 
         if (previousBidAmount == 0) {
-
             requiredAmount = listing.minPrice;
             require(msg.value > requiredAmount, "First bid must be > min price");
             listing.auctionEnd = block.timestamp + S_AUCTION_EXTENSION_DURATION;
             emit AuctionExtended(tokenId, listing.auctionEnd);
-
         } else {
             requiredAmount = (previousBidAmount / 100) * (100 + S_MIN_BID_INCREMENT_PERCENTAGE);
             require(msg.value >= requiredAmount, "Bid not high enough");
@@ -214,7 +210,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
 
         uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
         s_totalFee += fee;
-        
+
         uint256 sellerProceeds = bid.amount - fee;
         _payout(listing.seller, sellerProceeds);
 
@@ -226,7 +222,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
      */
     function _payout(address recipient, uint256 amount) internal {
         if (amount == 0) return;
-        (bool success, ) = payable(recipient).call{value: amount}("");
+        (bool success,) = payable(recipient).call{value: amount}("");
         if (!success) {
             failedTransferCredits[recipient] += amount;
         }
@@ -238,10 +234,10 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     function withdrawAllFailedCredits(address _receiver) external {
         uint256 amount = failedTransferCredits[_receiver];
         require(amount > 0, "No credits to withdraw");
-        
+
         failedTransferCredits[msg.sender] = 0;
-        
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
+
+        (bool success,) = payable(msg.sender).call{value: amount}("");
         require(success, "Withdraw failed");
     }
 
@@ -254,10 +250,10 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     }
 
     // --- View Functions ---
-    function getListing(uint256 tokenId) public view returns (Listing memory){
+    function getListing(uint256 tokenId) public view returns (Listing memory) {
         return listings[tokenId];
     }
-    
+
     function getHighestBid(uint256 tokenId) public view returns (Bid memory) {
         return bids[tokenId];
     }

@@ -7,7 +7,7 @@ import {BidBeasts} from "../src/BidBeasts_NFT_ERC721.sol";
 
 // A mock contract that cannot receive Ether, to test the payout failure logic.
 contract RejectEther {
-    // Intentionally has no payable receive or fallback
+// Intentionally has no payable receive or fallback
 }
 
 contract BidBeastsNFTMarketTest is Test {
@@ -62,7 +62,6 @@ contract BidBeastsNFTMarketTest is Test {
                             LISTING TESTS
     //////////////////////////////////////////////////////////////*/
     function test_listNFT() public {
-
         _mintNFT();
         _listNFT();
 
@@ -77,7 +76,6 @@ contract BidBeastsNFTMarketTest is Test {
         vm.expectRevert("Not the owner");
         market.listNFT(TOKEN_ID, MIN_PRICE, BUY_NOW_PRICE);
     }
-    
 
     function test_unlistNFT() public {
         _mintNFT();
@@ -85,7 +83,7 @@ contract BidBeastsNFTMarketTest is Test {
 
         vm.prank(SELLER);
         market.unlistNFT(TOKEN_ID);
-        
+
         assertEq(nft.ownerOf(TOKEN_ID), SELLER, "NFT should be returned to seller");
         assertFalse(market.getListing(TOKEN_ID).listed, "Listing should be marked as unlisted");
     }
@@ -115,14 +113,14 @@ contract BidBeastsNFTMarketTest is Test {
         market.placeBid{value: MIN_PRICE}(TOKEN_ID);
 
         uint256 bidder1BalanceBefore = BIDDER_1.balance;
-        
+
         uint256 secondBidAmount = MIN_PRICE * 120 / 100; // 20% increase
         vm.prank(BIDDER_2);
         market.placeBid{value: secondBidAmount}(TOKEN_ID);
 
         // Check if bidder 1 was refunded
         assertEq(BIDDER_1.balance, bidder1BalanceBefore + MIN_PRICE, "Bidder 1 was not refunded");
-        
+
         BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
         assertEq(highestBid.bidder, BIDDER_2, "Bidder 2 should be the new highest bidder");
         assertEq(highestBid.amount, secondBidAmount, "New highest bid amount is incorrect");

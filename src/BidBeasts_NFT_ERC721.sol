@@ -5,11 +5,11 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract BidBeasts is ERC721, Ownable(msg.sender) {
-
     event BidBeastsMinted(address indexed to, uint256 indexed tokenId);
     event BidBeastsBurn(address indexed from, uint256 indexed tokenId);
 
-    uint256 public CurrenTokenID; 
+    uint256 public CurrenTokenID;
+
     constructor() ERC721("Goddie_NFT", "GDNFT") {}
 
     function mint(address to) public onlyOwner returns (uint256) {
