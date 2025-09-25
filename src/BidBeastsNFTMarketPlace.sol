@@ -4,14 +4,19 @@ pragma solidity 0.8.20;
 import {BidBeasts} from "./BidBeasts_NFT_ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract BidBeastsNFTMarket is Ownable(msg.sender) {
+// @audit - low - incorrect use of Ownable constructor
+// contract BidBeastsNFTMarket is Ownable(msg.sender) {
+contract BidBeastsNFTMarket is Ownable {
     BidBeasts public BBERC721;
 
     // --- Events ---
+    // @audit - low - missing indexed event
     event NftListed(uint256 tokenId, address seller, uint256 minPrice, uint256 buyNowPrice);
     event NftUnlisted(uint256 tokenId);
+    // @audit - low - missing indexed event
     event BidPlaced(uint256 tokenId, address bidder, uint256 amount);
     event AuctionExtended(uint256 tokenId, uint256 newDeadline);
+    // @audit - low - missing indexed event
     event AuctionSettled(uint256 tokenId, address winner, address seller, uint256 price);
     event FeeWithdrawn(uint256 amount);
 
@@ -32,6 +37,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     // --- Constants ---
     uint256 public constant S_AUCTION_EXTENSION_DURATION = 15 minutes;
     uint256 public constant S_MIN_NFT_PRICE = 0.01 ether;
+    // @audit - low - percentage should be basis points for better precision
     uint256 public constant S_FEE_PERCENTAGE = 5;
     uint256 public constant S_MIN_BID_INCREMENT_PERCENTAGE = 5;
 
@@ -64,6 +70,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
      * @param _minPrice The starting price for the auction.
      * @param _buyNowPrice The price for immediate purchase (set to 0 to disable).
      */
+    // @audit - medium - reentrancy
     function listNFT(uint256 tokenId, uint256 _minPrice, uint256 _buyNowPrice) external {
         require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
         require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
@@ -101,6 +108,8 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     /**
      * @notice Places a bid on a listed NFT. Extends the auction on each new bid.
      */
+    // @audit - high - reentrancy attack
+    // @audit https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities
     function placeBid(uint256 tokenId) external payable isListed(tokenId) {
         Listing storage listing = listings[tokenId];
         address previousBidder = bids[tokenId].bidder;
@@ -113,7 +122,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
         require(listing.auctionEnd == 0 || block.timestamp < listing.auctionEnd, "Auction ended");
 
         // --- Buy Now Logic ---
-
+        // @audit - conditional should be a 'require' statement, when conditional fail, it will continue the logic
         if (listing.buyNowPrice > 0 && msg.value >= listing.buyNowPrice) {
             uint256 salePrice = listing.buyNowPrice;
             uint256 overpay = msg.value - salePrice;
@@ -137,7 +146,10 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
             return;
         }
 
+        // @audit - low - should follow CEI
         require(msg.sender != previousBidder, "Already highest bidder");
+        // @audit - medium - incorrect emitted event, should be emitted only when the sale has been properly made, not when still on actuion
+        // @audit - EXAMPLE: this event is not executed when 'buy now logic' is triggered.
         emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
 
         // --- Regular Bidding Logic ---
@@ -149,6 +161,8 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
             listing.auctionEnd = block.timestamp + S_AUCTION_EXTENSION_DURATION;
             emit AuctionExtended(tokenId, listing.auctionEnd);
         } else {
+            // @audit - medium - Divide before multiply
+            // @audit https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
             requiredAmount = (previousBidAmount / 100) * (100 + S_MIN_BID_INCREMENT_PERCENTAGE);
             require(msg.value >= requiredAmount, "Bid not high enough");
 
@@ -208,6 +222,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
 
         BBERC721.transferFrom(address(this), bid.bidder, tokenId);
 
+        // @audit - medium - incorrect percentage
         uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
         s_totalFee += fee;
 
@@ -231,6 +246,8 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
     /**
      * @notice Allows users to withdraw funds that failed to be transferred directly.
      */
+    // @audit - high - anyone can drain all funds from the contract using an '_receiver' address with 'amount'
+    // @audit
     function withdrawAllFailedCredits(address _receiver) external {
         uint256 amount = failedTransferCredits[_receiver];
         require(amount > 0, "No credits to withdraw");
@@ -241,6 +258,7 @@ contract BidBeastsNFTMarket is Ownable(msg.sender) {
         require(success, "Withdraw failed");
     }
 
+    // @audit - should follow CEI
     function withdrawFee() external onlyOwner {
         uint256 feeToWithdraw = s_totalFee;
         require(feeToWithdraw > 0, "No fees to withdraw");
