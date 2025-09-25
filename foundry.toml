@@ -5,6 +5,11 @@ libs = ["lib"]
 
 # remappings
 remappings = [
-    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/"
 ]
+
+[invariant]
+runs = 100
+depth = 128
+fail_on_revert = true
