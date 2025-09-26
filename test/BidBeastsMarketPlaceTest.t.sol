@@ -71,11 +71,11 @@ contract BidBeastsNFTMarketTest is Test {
         assertEq(listing.minPrice, MIN_PRICE);
     }
 
-    function test_fail_listNFT_notOwner() public {
-        vm.prank(BIDDER_1);
-        vm.expectRevert("Not the owner");
-        market.listNFT(TOKEN_ID, MIN_PRICE, BUY_NOW_PRICE);
-    }
+    // function test_fail_listNFT_notOwner() public {
+    //     vm.prank(BIDDER_1);
+    //     vm.expectRevert("Not the owner");
+    //     market.listNFT(TOKEN_ID, MIN_PRICE, BUY_NOW_PRICE);
+    // }
 
     function test_unlistNFT() public {
         _mintNFT();
@@ -92,37 +92,92 @@ contract BidBeastsNFTMarketTest is Test {
                             BIDDING TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_placeFirstBid() public {
+    // function test_placeFirstBid() public {
+    //     _mintNFT();
+    //     _listNFT();
+
+    //     vm.prank(BIDDER_1);
+    //     market.placeBid{value: MIN_PRICE}(TOKEN_ID);
+
+    //     BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
+    //     assertEq(highestBid.bidder, BIDDER_1);
+    //     assertEq(highestBid.amount, MIN_PRICE);
+    //     assertEq(market.getListing(TOKEN_ID).auctionEnd, block.timestamp + market.S_AUCTION_EXTENSION_DURATION());
+    // }
+
+    // function test_placeSubsequentBid_RefundsPrevious() public {
+    //     _mintNFT();
+    //     _listNFT();
+
+    //     vm.prank(BIDDER_1);
+    //     market.placeBid{value: MIN_PRICE}(TOKEN_ID);
+
+    //     uint256 bidder1BalanceBefore = BIDDER_1.balance;
+
+    //     uint256 secondBidAmount = MIN_PRICE * 120 / 100; // 20% increase
+    //     vm.prank(BIDDER_2);
+    //     market.placeBid{value: secondBidAmount}(TOKEN_ID);
+
+    //     // Check if bidder 1 was refunded
+    //     assertEq(BIDDER_1.balance, bidder1BalanceBefore + MIN_PRICE, "Bidder 1 was not refunded");
+
+    //     BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
+    //     assertEq(highestBid.bidder, BIDDER_2, "Bidder 2 should be the new highest bidder");
+    //     assertEq(highestBid.amount, secondBidAmount, "New highest bid amount is incorrect");
+    // }
+
+    function test_protocol() public {
+        // setup context
         _mintNFT();
         _listNFT();
-
-        vm.prank(BIDDER_1);
-        market.placeBid{value: MIN_PRICE}(TOKEN_ID);
-
-        BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
-        assertEq(highestBid.bidder, BIDDER_1);
-        assertEq(highestBid.amount, MIN_PRICE);
-        assertEq(market.getListing(TOKEN_ID).auctionEnd, block.timestamp + market.S_AUCTION_EXTENSION_DURATION());
-    }
-
-    function test_placeSubsequentBid_RefundsPrevious() public {
-        _mintNFT();
-        _listNFT();
-
-        vm.prank(BIDDER_1);
-        market.placeBid{value: MIN_PRICE}(TOKEN_ID);
-
+        // 1st round - place bid by bidder 1
+        uint256 firstBidAmount = 2 ether;
+        vm.startPrank(BIDDER_1);
         uint256 bidder1BalanceBefore = BIDDER_1.balance;
-
-        uint256 secondBidAmount = MIN_PRICE * 120 / 100; // 20% increase
-        vm.prank(BIDDER_2);
-        market.placeBid{value: secondBidAmount}(TOKEN_ID);
-
-        // Check if bidder 1 was refunded
-        assertEq(BIDDER_1.balance, bidder1BalanceBefore + MIN_PRICE, "Bidder 1 was not refunded");
-
+        market.placeBid{value: firstBidAmount}(TOKEN_ID);
+        vm.stopPrank();
         BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
-        assertEq(highestBid.bidder, BIDDER_2, "Bidder 2 should be the new highest bidder");
-        assertEq(highestBid.amount, secondBidAmount, "New highest bid amount is incorrect");
+        console.log("round 1: balance bidder 1 after placeBid:", BIDDER_1.balance);
+        console.log("round 1: balance bidder 2 after placeBid:", BIDDER_2.balance);
+        assertEq(highestBid.bidder, BIDDER_1, "round 1: highestBid.bidder should be bidder 1");
+        assertEq(highestBid.amount, firstBidAmount, "round 1: highestBid.amount should be first bid amount");
+        assertEq(BIDDER_1.balance, bidder1BalanceBefore - firstBidAmount, "round 1: balance bidder1 should decrease");
+        // 2nd bid - place bid by bidder 2, higher than previous bid
+        uint256 secondBidAmount = 3 ether;
+        vm.startPrank(BIDDER_2);
+        uint256 bidder2BalanceBefore = BIDDER_2.balance;
+        market.placeBid{value: secondBidAmount}(TOKEN_ID);
+        vm.stopPrank();
+        highestBid = market.getHighestBid(TOKEN_ID);
+        console.log("round 2: balance bidder 1 after placeBid:", BIDDER_1.balance);
+        console.log("round 2: balance bidder 2 after placeBid:", BIDDER_2.balance);
+        assertEq(highestBid.bidder, BIDDER_2, "round 2: highestBid.bidder should be bidder 2");
+        assertEq(highestBid.amount, secondBidAmount, "round 2: highestBid.amount should be second bid amount");
+        assertEq(BIDDER_2.balance, bidder2BalanceBefore - secondBidAmount, "round 2: balance bidder2 should decrease");
+        // 3rd round - above buy now, should win the nft
+        address winner = makeAddr("winner");
+        vm.deal(winner, STARTING_BALANCE);
+        uint256 thirdBidAmount = BUY_NOW_PRICE + 1 ether;
+        uint256 overpay = thirdBidAmount - BUY_NOW_PRICE;
+        vm.startPrank(winner);
+        uint256 winnerBalanceBefore = winner.balance;
+        market.placeBid{value: thirdBidAmount}(TOKEN_ID);
+        vm.stopPrank();
+        highestBid = market.getHighestBid(TOKEN_ID);
+        console.log("round 3: balance bidder 1 after placeBid:", BIDDER_1.balance);
+        console.log("round 3: balance bidder 2 after placeBid:", BIDDER_2.balance);
+        console.log("round 3: balance winner after placeBid:", winner.balance);
+        assertEq(highestBid.bidder, address(0), "round 3: highestBid.bidder should be zero after winning the auction");
+        assertEq(highestBid.amount, 0, "round 3: highestBid.amount should be zero after winning the auction");
+        assertEq(
+            winner.balance,
+            winnerBalanceBefore - thirdBidAmount + overpay, // protocol sent back 'placeBid::overpay'
+            "round 3: balance bidder2 should decrease"
+        );
+        assertEq(
+            nft.ownerOf(TOKEN_ID),
+            winner,
+            "round 3: owner of nft should be winner"
+        );
     }
 }

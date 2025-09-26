@@ -20,7 +20,7 @@ contract Invariant is StdInvariant, Test {
         // actors management
         address[] memory actors = new address[](ACTORS_LIMIT);
         for (uint256 i = 0; i < ACTORS_LIMIT; i++) {
-            actors[i] = makeAddr(vm.toString(i));
+            actors[i] = makeAddr(string(abi.encodePacked("Actor", vm.toString(i))));
             vm.deal(actors[i], STARTING_BALANCE);
         }
         // deploy contracts
@@ -35,8 +35,21 @@ contract Invariant is StdInvariant, Test {
     }
 
     function invariant_protocol() external view {
+        uint256 totalActors = handler.actorsLength();
+        console.log("Total Actors:", totalActors);
+        // for (uint256 i = 0; i > totalActors - 1; i++) {
+        //     uint256 balanceOf = nft.balanceOf(handler.actors(i));
+        //     if (balanceOf > 0) {
+        //         console.log(
+        //             "Actor:[%s] : Balance %s",
+        //             handler.actors(i),
+        //             balanceOf
+        //         );
+        //     }
+        // }
         console.log("Handler Mints:", handler.s_totalMints());
         console.log("NFT current tokenId:", nft.CurrenTokenID());
+        console.log("NFT BalanceOf(market):", nft.balanceOf(address(market)));
         assertEq(handler.s_totalMints(), nft.CurrenTokenID(), "Total minted tokens should match the current token ID");
     }
 

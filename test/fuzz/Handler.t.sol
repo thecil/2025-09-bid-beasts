@@ -29,6 +29,10 @@ contract Handler is Test {
         actors = _actors;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                HELPERS
+    //////////////////////////////////////////////////////////////*/
+
     function _mintNft(address user) private returns (uint256 tokenId) {
         vm.startPrank(owner);
         tokenId = nft.mint(user);
@@ -36,9 +40,20 @@ contract Handler is Test {
         s_totalMints++;
     }
 
+    function actorsLength() public view returns (uint256) {
+        return actors.length;
+    }
+    /*//////////////////////////////////////////////////////////////
+                               UNIT TESTS
+    //////////////////////////////////////////////////////////////*/
+
     function mintAndListNFT(uint256 actorIndexSeed, uint256 minPrice) external {
         // select random user
         currentActor = actors[bound(actorIndexSeed, 0, actors.length - 1)];
+        // omit if user has already an nft
+        if (nft.balanceOf(currentActor) > 0) {
+            return;
+        }
         // mint nft
         uint256 tokenIdToList = _mintNft(currentActor);
         // set price and max price
