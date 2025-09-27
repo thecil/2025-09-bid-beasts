@@ -150,6 +150,7 @@ contract BidBeastsNFTMarket is Ownable {
         require(msg.sender != previousBidder, "Already highest bidder");
         // @audit - medium - incorrect emitted event, should be emitted only when the sale has been properly made, not when still on actuion
         // @audit - EXAMPLE: this event is not executed when 'buy now logic' is triggered.
+        // @audit - this event is also being emited on a bid logic, should be emmited only when a sale is completed
         emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
 
         // --- Regular Bidding Logic ---
@@ -163,6 +164,7 @@ contract BidBeastsNFTMarket is Ownable {
         } else {
             // @audit - medium - Divide before multiply
             // @audit https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
+            // @audit - using basis points allow for easy calculation of percentage increase
             requiredAmount = (previousBidAmount / 100) * (100 + S_MIN_BID_INCREMENT_PERCENTAGE);
             require(msg.value >= requiredAmount, "Bid not high enough");
 
@@ -247,7 +249,7 @@ contract BidBeastsNFTMarket is Ownable {
      * @notice Allows users to withdraw funds that failed to be transferred directly.
      */
     // @audit - high - anyone can drain all funds from the contract using an '_receiver' address with 'amount'
-    // @audit
+    // @audit - low - missing natspect comments.
     function withdrawAllFailedCredits(address _receiver) external {
         uint256 amount = failedTransferCredits[_receiver];
         require(amount > 0, "No credits to withdraw");
