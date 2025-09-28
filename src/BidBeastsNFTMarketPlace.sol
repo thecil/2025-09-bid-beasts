@@ -70,7 +70,7 @@ contract BidBeastsNFTMarket is Ownable {
      * @param _minPrice The starting price for the auction.
      * @param _buyNowPrice The price for immediate purchase (set to 0 to disable).
      */
-    // @audit - [L-2] - Follow CEI Pattern to Avoid Reentrancy Risk.
+    // @audit - [L-2] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
     function listNFT(uint256 tokenId, uint256 _minPrice, uint256 _buyNowPrice) external {
         require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
         require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
@@ -149,9 +149,7 @@ contract BidBeastsNFTMarket is Ownable {
 
         // @audit - low - should follow CEI
         require(msg.sender != previousBidder, "Already highest bidder");
-        // @audit - low - incorrect emitted event, should be emitted only when the sale has been properly made, not when still on actuion
-        // @audit - EXAMPLE: this event is not executed when 'buy now logic' is triggered.
-        // @audit - this event is also being emited on a bid logic, should be emmited only when a sale is completed
+        // @audit - [L-4] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
         emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
 
         // --- Regular Bidding Logic ---
@@ -214,6 +212,7 @@ contract BidBeastsNFTMarket is Ownable {
     /**
      * @notice Internal function to handle the final NFT transfer and payment distribution.
      */
+    // @audit - [L-3] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
     function _executeSale(uint256 tokenId) internal {
         Listing storage listing = listings[tokenId];
         Bid memory bid = bids[tokenId];
@@ -223,10 +222,8 @@ contract BidBeastsNFTMarket is Ownable {
 
         BBERC721.transferFrom(address(this), bid.bidder, tokenId);
 
-        // @audit - medium - incorrect percentage
         uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
         s_totalFee += fee;
-        // @audit - OK - we are paying the seller the bid amount minus protocol fees.
         uint256 sellerProceeds = bid.amount - fee;
         _payout(listing.seller, sellerProceeds);
 
@@ -247,8 +244,7 @@ contract BidBeastsNFTMarket is Ownable {
     /**
      * @notice Allows users to withdraw funds that failed to be transferred directly.
      */
-    // @audit - [H-1] - Funds can be drain through `BidBeastsNFTMarket::withdrawAllFailedCredits` function.
-    // @audit - info - missing natspect comments.
+    // @audit - [H-1] - S - Funds can be drain through `BidBeastsNFTMarket::withdrawAllFailedCredits` function.
     function withdrawAllFailedCredits(address _receiver) external {
         uint256 amount = failedTransferCredits[_receiver];
         require(amount > 0, "No credits to withdraw");

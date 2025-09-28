@@ -336,7 +336,7 @@ Here is a simple example on how to modify these events:
 +   event NftListed(uint256 tokenId, address indexed seller, uint256 minPrice, uint256 buyNowPrice);
 ```
 
-### [L-2] - S - Follow CEI Pattern to Avoid Reentrancy Risk.
+### [L-2] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
 
 **Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg2q9dvj0005k204rdqm6kkl
 
@@ -422,3 +422,181 @@ This is the actual codebase of the function, we can see that the `transferFrom` 
 ```
 
 Rearranging the code to follow the CEI pattern ensures that all relevant state changes are made before any interactions with external contracts, reducing the risk of reentrancy attacks and enhancing the overall security of the contract.
+
+### [L-3] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg437wmo0005lb04r0vuyq0k
+
+**Description**: The `BidBeastsNFTMarket::_executeSale` function is exposed to reentrancy because it calls an external contract (`BBERC721.transferFrom`) before emitting the `AuctionSettled` event and call `_payout` to transfer the funds to the seller, allowing an attacker to execute malicious code and re-enter your contract while it’s in an inconsistent state.
+
+**Impact**: Low.
+
+**Proof of Concept**: 
+
+This is the actual codebase of the `_executeSale` function:
+
+```solidity
+    function _executeSale(uint256 tokenId) internal {
+        Listing storage listing = listings[tokenId];
+        Bid memory bid = bids[tokenId];
+
+        listing.listed = false;
+        delete bids[tokenId];
+
+@>      BBERC721.transferFrom(address(this), bid.bidder, tokenId);
+
+        uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
+        s_totalFee += fee;
+        uint256 sellerProceeds = bid.amount - fee;
+@>      _payout(listing.seller, sellerProceeds);
+
+@>      emit AuctionSettled(tokenId, bid.bidder, listing.seller, bid.amount);
+    }
+```
+
+**Recommended Mitigation**: To mitigate potential reentrancy risks, adhere to the CEI pattern by updating state variables (effects) before making any external calls (interactions). For instance:
+
+```diff
+    function _executeSale(uint256 tokenId) internal {
+        Listing storage listing = listings[tokenId];
+        Bid memory bid = bids[tokenId];
+
+        listing.listed = false;
+        delete bids[tokenId];
+
++       emit AuctionSettled(tokenId, bid.bidder, listing.seller, bid.amount);
+-       BBERC721.transferFrom(address(this), bid.bidder, tokenId);
+        uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
+        s_totalFee += fee;
+        uint256 sellerProceeds = bid.amount - fee;
+        _payout(listing.seller, sellerProceeds);
++       BBERC721.transferFrom(address(this), bid.bidder, tokenId);
+-       emit AuctionSettled(tokenId, bid.bidder, listing.seller, bid.amount);
+    }
+```
+
+Rearranging the code to follow the CEI pattern ensures that all relevant state changes are made before any interactions with external contracts, reducing the risk of reentrancy attacks and enhancing the overall security of the contract.
+
+### [L-4] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg44f86h0005ju04mr5ouheg
+
+**Description**: The `placeBid` function is responsible to place a bid on an NFT listed in the market.
+
+However, when an user only place a bid below the `buyNowPrice` of the listed NFT, the function is emitting the `AuctionSettled` event incorrectly, which can lead to confusion and potential issues for users. The `AuctionSettled` event should only be emitted when a bid is placed above or equal to the `buyNowPrice`.
+
+Also, the `_executeSale` function is also emitting the `AuctionSettled` event once the auction is settled.
+
+The actual codebase of the `_executeSale` function:
+
+```solidity
+    function _executeSale(uint256 tokenId) internal {
+        Listing storage listing = listings[tokenId];
+        Bid memory bid = bids[tokenId];
+
+        listing.listed = false;
+        delete bids[tokenId];
+
+        BBERC721.transferFrom(address(this), bid.bidder, tokenId);
+
+        uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
+        s_totalFee += fee;
+        uint256 sellerProceeds = bid.amount - fee;
+        _payout(listing.seller, sellerProceeds);
+
+        emit AuctionSettled(tokenId, bid.bidder, listing.seller, bid.amount);
+    }
+```
+
+This is the actual codebase for the `placeBid` function, we can see the `AuctionSettled` event is being emmited after the `--- Buy Now Logic ---`:
+
+```solidity
+    function placeBid(uint256 tokenId) external payable isListed(tokenId) {
+        Listing storage listing = listings[tokenId];
+        address previousBidder = bids[tokenId].bidder;
+        uint256 previousBidAmount = bids[tokenId].amount;
+
+        require(listing.seller != msg.sender, "Seller cannot bid");
+
+        // auctionEnd == 0 => no bids yet => allowed
+        // auctionEnd > 0 and block.timestamp >= auctionEnd => auction ended => block
+        require(listing.auctionEnd == 0 || block.timestamp < listing.auctionEnd, "Auction ended");
+
+        // --- Buy Now Logic ---
+        if (listing.buyNowPrice > 0 && msg.value >= listing.buyNowPrice) {
+            uint256 salePrice = listing.buyNowPrice;
+            uint256 overpay = msg.value - salePrice;
+
+            // EFFECT: set winner bid to exact sale price (keep consistent)
+            bids[tokenId] = Bid(msg.sender, salePrice);
+            listing.listed = false;
+
+            if (previousBidder != address(0)) {
+                _payout(previousBidder, previousBidAmount);
+            }
+
+            // NOTE: using internal finalize to do transfer/payouts. _executeSale will assume bids[tokenId] is the final winner.
+            _executeSale(tokenId);
+
+            // Refund overpay (if any) to buyer
+            if (overpay > 0) {
+                _payout(msg.sender, overpay);
+            }
+
+            return;
+        }
+
+        require(msg.sender != previousBidder, "Already highest bidder");
+@>      emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
+```
+
+**Impact**: Low.
+
+**Proof of Concept**: (Proof Of Code)
+
+1. In the `BidBeastsMkartePlaceTest.t.sol` unit test file, place the following unit test:
+
+```solidity
+    function _placeBid(address user, uint256 tokenId, uint256 amount) private {
+        vm.startPrank(user);
+        market.placeBid{value: amount}(tokenId);
+        vm.stopPrank();
+    }
+
+    function test_eventAuctionSettledEmittedOnBids() public {
+        _mintNFT();
+        _listNFT();
+        _placeBid(BIDDER_1, TOKEN_ID, 2 ether);
+        _placeBid(BIDDER_2, TOKEN_ID, 3 ether);
+    }
+```
+
+4. Run the unit test to demostrate the exploit.
+
+```bash
+forge test --mt test_eventAuctionSettledEmittedOnBids -vvvv
+```
+We can check the logs from the unit test transactions and we can realize that the event is geing emitted when a bid is being place, instead of being emitted when the auction is completed.
+
+`BIDDER_1` logs when `placeBid` is call:
+```
+    + [72627] BidBeastsNFTMarket::placeBid{value: 2000000000000000000}(0)
+    +   - emit AuctionSettled(tokenId: 0, winner: RIPEMD-160: [0x0000000000000000000000000000000000000003], seller: SHA-256: [0x0000000000000000000000000000000000000002], price: 2000000000000000000 [2e18])
+    +   - emit AuctionExtended(tokenId: 0, newDeadline: 901)
+    +   - emit BidPlaced(tokenId: 0, bidder: RIPEMD-160: [0x0000000000000000000000000000000000000003], amount: 2000000000000000000 [2e18])
+```
+
+`BIDDER_2` logs when `placeBid` is call:
+```
+    + [15891] BidBeastsNFTMarket::placeBid{value: 3000000000000000000}(0)
+    +   - emit AuctionSettled(tokenId: 0, winner: Identity: [0x0000000000000000000000000000000000000004], seller: SHA-256: [0x0000000000000000000000000000000000000002], price: 3000000000000000000 [3e18])
+    +   - [600] PRECOMPILES::ripemd{value: 2000000000000000000}(0x)
+    +   -   - ← [Return] 0x0000000000000000000000009c1185a5c5e9fc54612808977ee8f548b2258d31
+    +   - emit BidPlaced(tokenId: 0, bidder: Identity: [0x0000000000000000000000000000000000000004], amount: 3000000000000000000 [3e18])
+```
+
+**Recommended Mitigation**: 
+
+The `AuctionSettled` event should be emitted after the auction is completed.
+
+Since the event is being emitted on the `_executeSale` function, we can just remove it from the `placeBid` function.

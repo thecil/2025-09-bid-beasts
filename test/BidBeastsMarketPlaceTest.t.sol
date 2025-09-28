@@ -333,6 +333,13 @@ contract BidBeastsNFTMarketTest is Test {
         console.log("requiredAmount: %e", requiredAmount);
         console.log("correctRequiredAmountformula: %e", correctRequiredAmountformula);
     }
+
+    function test_eventAuctionSettledEmittedOnBids() public {
+        _mintNFT();
+        _listNFT();
+        _placeBid(BIDDER_1, TOKEN_ID, 2 ether);
+        _placeBid(BIDDER_2, TOKEN_ID, 3 ether);
+    }
 }
 
 // can place bid, but can't recive funds
