@@ -4,6 +4,7 @@ pragma solidity 0.8.20;
 import {Test, console} from "forge-std/Test.sol";
 import {BidBeastsNFTMarket} from "../src/BidBeastsNFTMarketPlace.sol";
 import {BidBeasts} from "../src/BidBeasts_NFT_ERC721.sol";
+import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 
 // A mock contract that cannot receive Ether, to test the payout failure logic.
 contract RejectEther {
@@ -340,6 +341,21 @@ contract BidBeastsNFTMarketTest is Test {
         _placeBid(BIDDER_1, TOKEN_ID, 2 ether);
         _placeBid(BIDDER_2, TOKEN_ID, 3 ether);
     }
+
+    function test_denialOfService() public {
+        _mintNFT();
+        _listNFT();
+        // setup the attacker
+        address attacker = makeAddr("attacker");
+        deal(attacker, STARTING_BALANCE);
+        vm.startPrank(attacker);
+        // deploy malicios contract
+        NFTSaleDenialOfService sc_dos = new NFTSaleDenialOfService(market);
+        // attack
+        sc_dos.placeBid{value: BUY_NOW_PRICE}(TOKEN_ID);
+        vm.stopPrank();
+        assertEq(nft.balanceOf(address(sc_dos)), 1,"DoS contract should have nft");
+    }
 }
 
 // can place bid, but can't recive funds
@@ -507,4 +523,23 @@ contract BuyNowAttack {
             revert BuyNowAttack__WithdrawFailed();
         }
     }
+}
+
+// invalid, use of ERC721.transferFrom() will force to change the ownership of the nft, like it or not
+contract NFTSaleDenialOfService  {
+    BidBeastsNFTMarket public immutable i_market;
+
+    error NFTSaleDenialOfService__RevertOnERC721Received();
+
+    constructor(BidBeastsNFTMarket _market) {
+        i_market = _market;
+    }
+
+    function placeBid(uint256 tokenId) external payable {
+        i_market.placeBid{value: msg.value}(tokenId);
+    }
+
+    // function onERC721Received(address, address, uint256, bytes memory) public virtual override returns (bytes4) {
+    //     revert NFTSaleDenialOfService__RevertOnERC721Received();
+    // }
 }

@@ -4,7 +4,7 @@ pragma solidity 0.8.20;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-// @audit - low - incorrect use of Ownable constructor
+// @audit - [L-1] - S - Incorrect Inheritance in `BidBeastsNFTMarket` and `BidBeasts`.
 // contract BidBeasts is ERC721, Ownable(msg.sender) {
 contract BidBeasts is ERC721, Ownable {
     event BidBeastsMinted(address indexed to, uint256 indexed tokenId);

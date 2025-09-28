@@ -4,19 +4,19 @@ pragma solidity 0.8.20;
 import {BidBeasts} from "./BidBeasts_NFT_ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-// @audit - low - incorrect use of Ownable constructor
+// @audit - [L-1] - S - Incorrect Inheritance in `BidBeastsNFTMarket` and `BidBeasts`.
 // contract BidBeastsNFTMarket is Ownable(msg.sender) {
 contract BidBeastsNFTMarket is Ownable {
     BidBeasts public BBERC721;
 
     // --- Events ---
-    // @audit - [L-1] - Missing indexed event.
+    // @audit - [L-2] - S - Missing indexed event.
     event NftListed(uint256 tokenId, address seller, uint256 minPrice, uint256 buyNowPrice);
     event NftUnlisted(uint256 tokenId);
-    // @audit - [L-1] - Missing indexed event.
+    // @audit - [L-2] - S - Missing indexed event.
     event BidPlaced(uint256 tokenId, address bidder, uint256 amount);
     event AuctionExtended(uint256 tokenId, uint256 newDeadline);
-    // @audit - [L-1] - Missing indexed event.
+    // @audit - [L-2] - S - Missing indexed event.
     event AuctionSettled(uint256 tokenId, address winner, address seller, uint256 price);
     event FeeWithdrawn(uint256 amount);
 
@@ -70,7 +70,7 @@ contract BidBeastsNFTMarket is Ownable {
      * @param _minPrice The starting price for the auction.
      * @param _buyNowPrice The price for immediate purchase (set to 0 to disable).
      */
-    // @audit - [L-2] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
+    // @audit - [L-3] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
     function listNFT(uint256 tokenId, uint256 _minPrice, uint256 _buyNowPrice) external {
         require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
         require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
@@ -149,7 +149,7 @@ contract BidBeastsNFTMarket is Ownable {
 
         // @audit - low - should follow CEI
         require(msg.sender != previousBidder, "Already highest bidder");
-        // @audit - [L-4] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
+        // @audit - [L-5] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
         emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
 
         // --- Regular Bidding Logic ---
@@ -212,7 +212,7 @@ contract BidBeastsNFTMarket is Ownable {
     /**
      * @notice Internal function to handle the final NFT transfer and payment distribution.
      */
-    // @audit - [L-3] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
+    // @audit - [L-4] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
     function _executeSale(uint256 tokenId) internal {
         Listing storage listing = listings[tokenId];
         Bid memory bid = bids[tokenId];

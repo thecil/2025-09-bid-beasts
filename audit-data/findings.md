@@ -300,7 +300,43 @@ By comparing the result of the actual `requiredAmount` formula against the `corr
 
 ## LOW
 
-### [L-1] - S - Missing indexed event.
+### [L-1] - S - Incorrect Inheritance in `BidBeastsNFTMarket` and `BidBeasts`.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg46fd7m0005jr04lz5lp6jj
+
+**Description**: The `BidBeastsNFTMarket` contract and `BidBeasts` contract inherits the `Ownable` contract, however the syntax is incorrect.
+
+**Impact**: Low.
+
+**Proof of Concept**: (Proof Of Code)
+
+This is the actual code for both contracts:
+
+`BidBeastsNFTMarket.sol`:
+```solidity
+contract BidBeastsNFTMarket is Ownable(msg.sender) {
+```
+
+`BidBeasts.sol`:
+```solidity
+contract BidBeasts is ERC721, Ownable(msg.sender) {
+```
+
+**Recommended Mitigation**: Replace the syntax of each contract in the following way:
+
+`BidBeastsNFTMarket.sol`:
+```diff
+- contract BidBeastsNFTMarket is Ownable(msg.sender) {
++ contract BidBeastsNFTMarket is Ownable {
+```
+
+`BidBeasts.sol`:
+```diff
+- contract BidBeasts is ERC721, Ownable(msg.sender) {
++ contract BidBeasts is ERC721, Ownable {
+```
+
+### [L-2] - S - Missing indexed event.
 
 **Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg2poyf20005jv04emb0q1q8
 
@@ -336,7 +372,7 @@ Here is a simple example on how to modify these events:
 +   event NftListed(uint256 tokenId, address indexed seller, uint256 minPrice, uint256 buyNowPrice);
 ```
 
-### [L-2] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
+### [L-3] - S - `BidBeastsNFTMarket::listNFT` function should follow CEI Pattern to Avoid Reentrancy Risk.
 
 **Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg2q9dvj0005k204rdqm6kkl
 
