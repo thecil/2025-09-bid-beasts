@@ -1,6 +1,8 @@
 ## HIGH
 
-### [H-1] - Funds can be drain through `BidBeastsNFTMarket::withdrawAllFailedCredits` function.
+### [H-1] - S - Funds can be drain through `BidBeastsNFTMarket::withdrawAllFailedCredits` function.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg1js9cm0003k304u9z3j2sb
 
 **Description**: The `withdrawAllFailedCredits` is responsible for allowing an user to withdraw funds that fail to transfer over a bid. 
 
@@ -219,24 +221,204 @@ At this point, the balance of the `WithdrawFailedCreditsAttack` contract will be
 
 ## MEDIUM
 
-### [M-1] - 
+### [M-1] - S - `BidBeastsNFTMarket::placeBid` dDivide before multiply cause precision loss for the `requiredAmount` calculation.
 
-**Description**:
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg42edi70005l4048tx8taph
 
-**Impact**:
+**Description**: Solidity's integer division truncates. Thus, performing division before multiplication can lead to precision loss.
+
+The function `placeBid` calculates the `requiredAmount` for a bid based on the previous bid amount and a minimum increment percentage. The division operation is performed before multiplication, which can lead to precision loss.
+
+**Impact**: Medium, every time a bid is placed, there is a risk of precision loss due to the division operation before multiplication.
 
 **Proof of Concept**: (Proof of Code)
 
-**Recommended Mitigation**: 
+1. In the `BidBeastsMkartePlaceTest.t.sol` unit test file, place the following unit test:
+
+```solidity
+    function _placeBid(address user, uint256 tokenId, uint256 amount) private {
+        vm.startPrank(user);
+        market.placeBid{value: amount}(tokenId);
+        vm.stopPrank();
+    }
+
+    function test_requiredAmount() public {
+        // setup context
+        _mintNFT();
+        // list the nft with minimum bid price
+        vm.startPrank(SELLER);
+        nft.approve(address(market), TOKEN_ID);
+        market.listNFT(TOKEN_ID, 0.01 ether, BUY_NOW_PRICE);
+        vm.stopPrank();
+        // place a bid with min bid price plus 1 wei, so we can prove how the precision for that 1 wei is lost
+        _placeBid(BIDDER_1, TOKEN_ID, 0.01 ether + 1);
+        BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(
+            TOKEN_ID
+        );
+        uint256 markeBidtIncrement = market.S_MIN_BID_INCREMENT_PERCENTAGE();
+        uint256 prevBidAmount = highestBid.amount;
+
+        // required amount actual code base calculation
+        uint256 requiredAmount = (prevBidAmount / 100) *
+            (100 + markeBidtIncrement);
+
+        // correct formula
+        uint256 correctRequiredAmountformula = (prevBidAmount *
+            (100 + markeBidtIncrement)) / 100;
+
+        console.log("prevBidAmount: %e", prevBidAmount);
+        console.log("requiredAmount: %e", requiredAmount);
+        console.log(
+            "correctRequiredAmountformula: %e",
+            correctRequiredAmountformula
+        );
+    }
+```
+
+4. Run the unit test to demostrate the exploit.
+
+```bash
+forge test --mt test_requiredAmount -vv
+```
+
+By comparing the result of the actual `requiredAmount` formula against the `correctRequiredAmountformula` we can realize a round-down error because of integer division before multiplication.
+
+**Recommended Mitigation**: Use the formula proposed at the unit test as `correctRequiredAmountformula`
+
+```diff
+    function placeBid(uint256 tokenId) external payable isListed(tokenId) {
+        ...
+        // --- Regular Bidding Logic ---
+        uint256 requiredAmount;
+        if (previousBidAmount == 0) {
+            ...
+        } else
+-       requiredAmount = (previousBidAmount / 100) * (100 + S_MIN_BID_INCREMENT_PERCENTAGE);
++       requiredAmount = previousBidAmount * (100 + S_MIN_BID_INCREMENT_PERCENTAGE) / 100;
+   }
+```
 
 ## LOW
 
-### [L-1] - 
+### [L-1] - S - Missing indexed event.
 
-**Description**:
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg2poyf20005jv04emb0q1q8
 
-**Impact**:
+**Description**: Indexed event fields make the data more quickly accessible to off-chain tools that parse events, and adds them to a special data structure known as “topics” instead of the data part of the log. A topic can only hold a single word (32 bytes) so if you use a reference type for an indexed argument, the Keccak-256 hash of the value is stored as a topic instead.
 
-**Proof of Concept**: (Proof of Code)
+Each event can use up to three indexed fields. If there are fewer than three fields, all of the fields can be indexed. It is important to note that each index field costs extra gas during emission, so it's not necessarily best to index the maximum allowed fields per event (three indexed fields).
 
-**Recommended Mitigation**: 
+This is specially recommended when gas usage is not particularly of concern for the emission of the events in question, and the benefits of querying those fields in an easier and straight-forward manner surpasses the downsides of gas usage increase.
+
+**Impact**: Low.
+
+**Proof of Concept**: The following events on the `BidBeastsNFTMarket` contract are missing an indexed field:
+
+- `NFtListed`:
+```solidity
+    event NftListed(uint256 tokenId, address seller, uint256 minPrice, uint256 buyNowPrice);
+```
+- `BidPlaced`:
+```solidity
+    event BidPlaced(uint256 tokenId, address bidder, uint256 amount);
+```
+- `AuctionSettled`:
+```solidity
+    event AuctionSettled(uint256 tokenId, address winner, address seller, uint256 price);
+```
+
+**Recommended Mitigation**: Modify the declared events, attributing the indexed keyword for the important fields. This action will allow easier fetching of on-chain data through events.
+
+Here is a simple example on how to modify these events:
+
+```diff
+-   event NftListed(uint256 tokenId, address seller, uint256 minPrice, uint256 buyNowPrice);
++   event NftListed(uint256 tokenId, address indexed seller, uint256 minPrice, uint256 buyNowPrice);
+```
+
+### [L-2] - S - Follow CEI Pattern to Avoid Reentrancy Risk.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg2q9dvj0005k204rdqm6kkl
+
+**Description**: The `BidBeastsNFTMarket::listNFT` function is exposed to reentrancy because it calls an external contract (`BBERC721.transferFrom`) before updating internal state, allowing an attacker to execute malicious code and re-enter your contract while it’s in an inconsistent state.
+
+**Impact**: Low.
+
+**Proof of Concept**: 
+
+This is the actual codebase of the function, we can see that the `transferFrom` call is made before updating the internal state.
+
+```solidity
+    function listNFT(
+        uint256 tokenId,
+        uint256 _minPrice,
+        uint256 _buyNowPrice
+    ) external {
+        require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
+        if (_buyNowPrice > 0) {
+            require(
+                _minPrice <= _buyNowPrice,
+                "Min price cannot exceed buy now price"
+            );
+        }
+
+@>      BBERC721.transferFrom(msg.sender, address(this), tokenId);
+
+@>      listings[tokenId] = Listing({
+            seller: msg.sender,
+            minPrice: _minPrice,
+            buyNowPrice: _buyNowPrice,
+            auctionEnd: 0, // Timer starts only after the first valid bid.
+            listed: true
+        });
+
+        emit NftListed(tokenId, msg.sender, _minPrice, _buyNowPrice);
+    }
+```
+
+**Recommended Mitigation**: To mitigate potential reentrancy risks, adhere to the CEI pattern by updating state variables (effects) before making any external calls (interactions). For instance:
+
+```diff
+    function listNFT(
+        uint256 tokenId,
+        uint256 _minPrice,
+        uint256 _buyNowPrice
+    ) external {
+        // checks
+        require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
+        if (_buyNowPrice > 0) {
+            require(
+                _minPrice <= _buyNowPrice,
+                "Min price cannot exceed buy now price"
+            );
+        }
+        // effects
++      listings[tokenId] = Listing({
++           seller: msg.sender,
++           minPrice: _minPrice,
++           buyNowPrice: _buyNowPrice,
++           auctionEnd: 0, // Timer starts only after the first valid bid.
++           listed: true
++       });
+
++       emit NftListed(tokenId, msg.sender, _minPrice, _buyNowPrice);
+
+-        BBERC721.transferFrom(msg.sender, address(this), tokenId);
+        // interactions
+-      listings[tokenId] = Listing({
+-           seller: msg.sender,
+-           minPrice: _minPrice,
+-           buyNowPrice: _buyNowPrice,
+-           auctionEnd: 0, // Timer starts only after the first valid bid.
+-           listed: true
+-       });
+
+-       emit NftListed(tokenId, msg.sender, _minPrice, _buyNowPrice);
+
++        BBERC721.transferFrom(msg.sender, address(this), tokenId);
+    }
+```
+
+Rearranging the code to follow the CEI pattern ensures that all relevant state changes are made before any interactions with external contracts, reducing the risk of reentrancy attacks and enhancing the overall security of the contract.

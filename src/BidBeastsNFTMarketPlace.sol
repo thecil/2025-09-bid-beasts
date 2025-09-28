@@ -10,13 +10,13 @@ contract BidBeastsNFTMarket is Ownable {
     BidBeasts public BBERC721;
 
     // --- Events ---
-    // @audit - low - missing indexed event
+    // @audit - [L-1] - Missing indexed event.
     event NftListed(uint256 tokenId, address seller, uint256 minPrice, uint256 buyNowPrice);
     event NftUnlisted(uint256 tokenId);
-    // @audit - low - missing indexed event
+    // @audit - [L-1] - Missing indexed event.
     event BidPlaced(uint256 tokenId, address bidder, uint256 amount);
     event AuctionExtended(uint256 tokenId, uint256 newDeadline);
-    // @audit - low - missing indexed event
+    // @audit - [L-1] - Missing indexed event.
     event AuctionSettled(uint256 tokenId, address winner, address seller, uint256 price);
     event FeeWithdrawn(uint256 amount);
 
@@ -70,7 +70,7 @@ contract BidBeastsNFTMarket is Ownable {
      * @param _minPrice The starting price for the auction.
      * @param _buyNowPrice The price for immediate purchase (set to 0 to disable).
      */
-    // @audit - medium - reentrancy
+    // @audit - [L-2] - Follow CEI Pattern to Avoid Reentrancy Risk.
     function listNFT(uint256 tokenId, uint256 _minPrice, uint256 _buyNowPrice) external {
         require(BBERC721.ownerOf(tokenId) == msg.sender, "Not the owner");
         require(_minPrice >= S_MIN_NFT_PRICE, "Min price too low");
@@ -129,6 +129,7 @@ contract BidBeastsNFTMarket is Ownable {
 
             // EFFECT: set winner bid to exact sale price (keep consistent)
             bids[tokenId] = Bid(msg.sender, salePrice);
+            // @audit - this is being set at `_executeSale`, which is being call below this codeline
             listing.listed = false;
 
             if (previousBidder != address(0)) {
@@ -148,7 +149,7 @@ contract BidBeastsNFTMarket is Ownable {
 
         // @audit - low - should follow CEI
         require(msg.sender != previousBidder, "Already highest bidder");
-        // @audit - medium - incorrect emitted event, should be emitted only when the sale has been properly made, not when still on actuion
+        // @audit - low - incorrect emitted event, should be emitted only when the sale has been properly made, not when still on actuion
         // @audit - EXAMPLE: this event is not executed when 'buy now logic' is triggered.
         // @audit - this event is also being emited on a bid logic, should be emmited only when a sale is completed
         emit AuctionSettled(tokenId, msg.sender, listing.seller, msg.value);
@@ -162,9 +163,7 @@ contract BidBeastsNFTMarket is Ownable {
             listing.auctionEnd = block.timestamp + S_AUCTION_EXTENSION_DURATION;
             emit AuctionExtended(tokenId, listing.auctionEnd);
         } else {
-            // @audit - medium - Divide before multiply
-            // @audit https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
-            // @audit - using basis points allow for easy calculation of percentage increase
+            // @audit - [M-1] - S - `BidBeastsNFTMarket::placeBid` dDivide before multiply cause precision loss for the `requiredAmount` calculation.
             requiredAmount = (previousBidAmount / 100) * (100 + S_MIN_BID_INCREMENT_PERCENTAGE);
             require(msg.value >= requiredAmount, "Bid not high enough");
 
@@ -227,7 +226,7 @@ contract BidBeastsNFTMarket is Ownable {
         // @audit - medium - incorrect percentage
         uint256 fee = (bid.amount * S_FEE_PERCENTAGE) / 100;
         s_totalFee += fee;
-
+        // @audit - OK - we are paying the seller the bid amount minus protocol fees.
         uint256 sellerProceeds = bid.amount - fee;
         _payout(listing.seller, sellerProceeds);
 
@@ -248,8 +247,8 @@ contract BidBeastsNFTMarket is Ownable {
     /**
      * @notice Allows users to withdraw funds that failed to be transferred directly.
      */
-    // @audit - high - anyone can drain all funds from the contract using an '_receiver' address with 'amount'
-    // @audit - low - missing natspect comments.
+    // @audit - [H-1] - Funds can be drain through `BidBeastsNFTMarket::withdrawAllFailedCredits` function.
+    // @audit - info - missing natspect comments.
     function withdrawAllFailedCredits(address _receiver) external {
         uint256 amount = failedTransferCredits[_receiver];
         require(amount > 0, "No credits to withdraw");

