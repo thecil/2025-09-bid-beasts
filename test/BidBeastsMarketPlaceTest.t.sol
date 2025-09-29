@@ -354,7 +354,7 @@ contract BidBeastsNFTMarketTest is Test {
         // attack
         sc_dos.placeBid{value: BUY_NOW_PRICE}(TOKEN_ID);
         vm.stopPrank();
-        assertEq(nft.balanceOf(address(sc_dos)), 1,"DoS contract should have nft");
+        assertEq(nft.balanceOf(address(sc_dos)), 1, "DoS contract should have nft");
     }
 }
 
@@ -526,7 +526,7 @@ contract BuyNowAttack {
 }
 
 // invalid, use of ERC721.transferFrom() will force to change the ownership of the nft, like it or not
-contract NFTSaleDenialOfService  {
+contract NFTSaleDenialOfService {
     BidBeastsNFTMarket public immutable i_market;
 
     error NFTSaleDenialOfService__RevertOnERC721Received();

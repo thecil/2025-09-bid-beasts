@@ -459,7 +459,7 @@ This is the actual codebase of the function, we can see that the `transferFrom` 
 
 Rearranging the code to follow the CEI pattern ensures that all relevant state changes are made before any interactions with external contracts, reducing the risk of reentrancy attacks and enhancing the overall security of the contract.
 
-### [L-3] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
+### [L-4] - S - `BidBeastsNFTMarket::_executeSale` function should follow CEI Pattern to Avoid Reentrancy Risk.
 
 **Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg437wmo0005lb04r0vuyq0k
 
@@ -513,13 +513,15 @@ This is the actual codebase of the `_executeSale` function:
 
 Rearranging the code to follow the CEI pattern ensures that all relevant state changes are made before any interactions with external contracts, reducing the risk of reentrancy attacks and enhancing the overall security of the contract.
 
-### [L-4] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
+### [L-5] - S - `BidBeastsNFTMarket::placeBid` duplicate event emition and set of variales, causing confusion when placing a bid.
 
 **Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg44f86h0005ju04mr5ouheg
 
 **Description**: The `placeBid` function is responsible to place a bid on an NFT listed in the market.
 
 However, when an user only place a bid below the `buyNowPrice` of the listed NFT, the function is emitting the `AuctionSettled` event incorrectly, which can lead to confusion and potential issues for users. The `AuctionSettled` event should only be emitted when a bid is placed above or equal to the `buyNowPrice`.
+
+Also, the `placeBid` function at his `Buy Now Logic` is setting the `listing.listed = false` variable, which is also beins set at the `_executeSle` function, which can lead to confusion and potential issues for users.
 
 Also, the `_executeSale` function is also emitting the `AuctionSettled` event once the auction is settled.
 
@@ -565,7 +567,7 @@ This is the actual codebase for the `placeBid` function, we can see the `Auction
 
             // EFFECT: set winner bid to exact sale price (keep consistent)
             bids[tokenId] = Bid(msg.sender, salePrice);
-            listing.listed = false;
+@>          listing.listed = false;
 
             if (previousBidder != address(0)) {
                 _payout(previousBidder, previousBidAmount);
@@ -636,3 +638,75 @@ We can check the logs from the unit test transactions and we can realize that th
 The `AuctionSettled` event should be emitted after the auction is completed.
 
 Since the event is being emitted on the `_executeSale` function, we can just remove it from the `placeBid` function.
+
+Also you can remove the `listing.listed = false` code line, since it is also being set at the `_executeSale` function.
+
+### [L-6] - S - The `BidBeastsNFTMarket::withdrawFee` function should emit the `FeeWithdrawn` event after it alters storage variables.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg5d4hmv0005kv04otvu5b2h
+
+**Description**: The `withdrawFee` function allows the owner to withdraw the total fees accured by the protocol sales. However, the `FeeWithdrawn` event is being triggered at the end of the logic of the function, where it should be emitted when the storage variable are altered.
+
+**Impact**: Low.
+
+**Proof of Concept**: 
+
+This is the actual codebase of the `withdrawFee` function, where the `FeeWithdrawn` event is being triggered after the `_payout` function, not after altering the storage at `s_totalFee = 0`
+
+```solidity
+    function withdrawFee() external onlyOwner {
+        uint256 feeToWithdraw = s_totalFee;
+        require(feeToWithdraw > 0, "No fees to withdraw");
+        s_totalFee = 0;
+        _payout(owner(), feeToWithdraw);
+@>      emit FeeWithdrawn(feeToWithdraw);
+    }
+```
+
+**Recommended Mitigation**: Consider always emitting events after sensitive changes take place to facilitate tracking and notify off-chain clients that follow the protocol's contracts' activity.
+
+```diff
+    function withdrawFee() external onlyOwner {
+        uint256 feeToWithdraw = s_totalFee;
+        require(feeToWithdraw > 0, "No fees to withdraw");
+        s_totalFee = 0;
++       emit FeeWithdrawn(feeToWithdraw);
+        _payout(owner(), feeToWithdraw);
+-       emit FeeWithdrawn(feeToWithdraw);
+    }
+```
+
+### [L-7] - S - Use OpenZeppelin’s nonReentrant modifier to Avoid Reentrancy Risk.
+
+**Submit Link:** https://codehawks.cyfrin.io/c/2025-09-bid-beasts/s/cmg5ew4tn0005ky04d7lls6hx
+
+**Description**: There are several functions in the `BidBeastsNFTMarket` contract that are vulnerable to reentrancy risks. In order to avoid any reentrancy issues, we should use the `nonReentrant` modifier provided by [OpenZeppelin ReentrancyGuard](https://docs.openzeppelin.com/contracts/4.x/api/security#ReentrancyGuard). This modifier can be used to prevent functions from being called multiple times within a short period of time.
+
+**Impact**: Low.
+
+**Proof of Concept**: 
+
+The following functions make use of the `_payout` or `_executeSale` functions without the `nonReentrant` modifier. This can lead to reentrancy attacks, where an attacker can call the function multiple times before it has completed its execution.
+
+- `listNFT()`
+- `placeBid()` 
+- `settleAuction()`
+- `takeHighestBid()` 
+- `unlistNFT()`
+- `withdrawAllFailedCredits()`
+- `withdrawFee()`
+
+**Recommended Mitigation**: Review all `external` and `public` functions in the `BidBeastsNFTMarket` contract and apply the nonReentrant modifier to functions that involve state changes, external calls, or transfers of Ether or tokens. This ensures protection against reentrancy attacks.
+
+Here is an example of how you can add a `nonReentrant` modifier to the `placeBid` function:
+
+```diff
++   import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+-   contract BidBeastsNFTMarket is Ownable {
++   contract BidBeastsNFTMarket is ReentrancyGuard, Ownable {
+
+-   function placeBid(uint256 tokenId) external payable isListed(tokenId) {
++   function placeBid(uint256 tokenId) external payable nonReentrant isListed(tokenId) {
+```
+

@@ -122,14 +122,13 @@ contract BidBeastsNFTMarket is Ownable {
         require(listing.auctionEnd == 0 || block.timestamp < listing.auctionEnd, "Auction ended");
 
         // --- Buy Now Logic ---
-        // @audit - conditional should be a 'require' statement, when conditional fail, it will continue the logic
         if (listing.buyNowPrice > 0 && msg.value >= listing.buyNowPrice) {
             uint256 salePrice = listing.buyNowPrice;
             uint256 overpay = msg.value - salePrice;
 
             // EFFECT: set winner bid to exact sale price (keep consistent)
             bids[tokenId] = Bid(msg.sender, salePrice);
-            // @audit - this is being set at `_executeSale`, which is being call below this codeline
+            // @audit - [L-5] - S - `BidBeastsNFTMarket::placeBid` emitting `AuctionSettled` event incorrectly, causing confusion when placing a bid.
             listing.listed = false;
 
             if (previousBidder != address(0)) {
@@ -255,7 +254,7 @@ contract BidBeastsNFTMarket is Ownable {
         require(success, "Withdraw failed");
     }
 
-    // @audit - should follow CEI
+    // @audit - [L-6] - S - The `BidBeastsNFTMarket::withdrawFee` function should emit the `FeeWithdrawn` event after it alters storage variables.
     function withdrawFee() external onlyOwner {
         uint256 feeToWithdraw = s_totalFee;
         require(feeToWithdraw > 0, "No fees to withdraw");
